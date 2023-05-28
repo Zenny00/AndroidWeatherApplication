@@ -5,10 +5,8 @@ import android.content.pm.PackageManager;
 import android.location.Address;
 import android.location.Geocoder;
 import android.location.Location;
-import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
-import android.util.Log;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.AppCompatTextView;
@@ -20,20 +18,22 @@ import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 
-import java.io.BufferedReader;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 
-public class main_activity extends AppCompatActivity {
+public class main_activity extends AppCompatActivity implements WeatherAPITask.WeatherDataCallback {
 
+    // Visual components
     private AppCompatTextView text_field;
-    private final String API_KEY = "322da3909789490db5824420232705" ;
-    private final String LOCATION = "London";
+    private AppCompatTextView user_location;
+    private AppCompatTextView temperature;
+    private String weather_response = null;
+
     // Location Services
     private FusedLocationProviderClient loc_client;
 
@@ -45,64 +45,22 @@ public class main_activity extends AppCompatActivity {
         loc_client = LocationServices.getFusedLocationProviderClient(this);
 
         text_field = (AppCompatTextView) findViewById(R.id.app_title);
+        user_location = (AppCompatTextView) findViewById(R.id.user_loc);
+        temperature = (AppCompatTextView) findViewById(R.id.temperature);
 
         // Get current city
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             get_location().thenAccept(coordinates -> {
-                new WeatherAPITask().execute(get_city(coordinates));
+                // Get the city and state
+                String city_state[] = get_city_state(coordinates);
+
+                // Create the WeatherAPI and pass in the city and state
+                WeatherAPITask weather_api = new WeatherAPITask(this);
+                weather_api.execute(city_state[0], city_state[1]);
             });
         }
-    }
 
-    // Async function to get weather data from API in background
-    private class WeatherAPITask extends AsyncTask<String, Void, String> {
-        @Override
-        protected String doInBackground(String... params) {
-            String city = params[0];
-            try {
-                String apiUrl = "https://api.weatherapi.com/v1/current.json?key=" + API_KEY + "&q=" + city;
-                URL url = new URL(apiUrl);
 
-                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-                connection.setRequestMethod("GET");
-
-                int responseCode = connection.getResponseCode();
-
-                // If response is OK read data into StringBuilder
-                if (responseCode == HttpURLConnection.HTTP_OK) {
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                    String line;
-                    StringBuilder response = new StringBuilder();
-
-                    while ((line = reader.readLine()) != null) {
-                        response.append(line);
-                    }
-
-                    reader.close();
-
-                    return response.toString();
-                } else {
-                    Log.e("WeatherAPI", "Error: " + responseCode);
-                }
-
-                connection.disconnect();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-
-            return null;
-        }
-
-        // After async function runs, print information to the screen
-        @Override
-        protected void onPostExecute(String response) {
-            if (response != null) {
-                text_field.setText(response);
-            } else {
-                // Handle the case where response is null
-                Log.e("WeatherAPIExample", "Failed to fetch weather data");
-            }
-        }
     }
 
     private CompletableFuture<double[]> get_location() {
@@ -145,27 +103,60 @@ public class main_activity extends AppCompatActivity {
     }
 
     // Convert coordinates into a city name
-    private String get_city(double coordinates[]) {
+    private String[] get_city_state(double coordinates[]) {
 
-        String city = null;
+        String city_state[] = new String[2];
 
         // Geocoder to get address
         Geocoder geocoder = new Geocoder(main_activity.this, Locale.getDefault());
         try {
             List<Address> addressList = geocoder.getFromLocation(coordinates[0], coordinates[1], 10);
             if (addressList.size() > 0) {
-                city = addressList.get(0).getLocality(); // Get city
+                city_state[0] = addressList.get(0).getLocality(); // Get city
+                city_state[1] = addressList.get(0).getAdminArea(); // Get state
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
 
-        return city;
+        return city_state;
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         get_location();
+    }
+
+    @Override
+    public void onWeatherDataReceived(String weatherData) {
+        weather_response = weatherData;
+        process_weather_data();
+    }
+
+    private void process_weather_data() {
+        try {
+            // Get the user's city and state from the API response
+            JSONObject weather_data = new JSONObject(weather_response);
+            String weather_city = new JSONObject(weather_data.getString("location")).getString("name");
+            String weather_state = new JSONObject(weather_data.getString("location")).getString("region");
+
+            // Write to the view
+            user_location.setText(weather_city + ", " + weather_state);
+
+
+            // Get time of day, temp, and condition
+            String is_day = new JSONObject(weather_data.getString("current")).getString("is_day");
+            String temp = new JSONObject(weather_data.getString("current")).getString("temp_f");
+            String condition = new JSONObject(new JSONObject(weather_data.getString("current")).getString("condition")).getString("text");
+
+            temperature.setText(condition);
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+
+
     }
 }
