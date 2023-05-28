@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">BasicWeatherApp</string>
+    <string name="app_title">Quick Weather</string>
+</resources>
